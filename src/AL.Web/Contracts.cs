@@ -24,12 +24,35 @@ public sealed record GenomeInfo(
     float ChildShare,
     float ClockRate);
 
+public sealed record SpeciesInfo(
+    int Id,
+    string Name,
+    int ParentId,
+    string? ParentName,
+    int FoundedTick,
+    int? ExtinctTick,
+    int Population,
+    int PeakPopulation,
+    float AverageDiet)
+{
+    public static SpeciesInfo From(Species s, World world) => new(
+        s.Id, s.Name, s.ParentId, world.FindSpecies(s.ParentId)?.Name,
+        s.FoundedTick, s.ExtinctTick, s.Population, s.PeakPopulation, s.AverageDiet);
+}
+
+/// <summary>Ветка дерева видов: сведения о виде и его численность по времени (два параллельных массива).</summary>
+public sealed record SpeciesBranch(SpeciesInfo Species, int[] Ticks, int[] Populations);
+
+public sealed record SpeciesResponse(int Tick, SpeciesInfo[] Living, SpeciesBranch[] Tree);
+
 public sealed record CreatureDetails(
     int Id,
     bool IsDead,
     int DeathTick,
     int Generation,
     int ParentId,
+    int SpeciesId,
+    string SpeciesName,
     int Age,
     int Lifespan,
     float Energy,
@@ -50,7 +73,7 @@ public sealed record CreatureDetails(
     {
         var g = c.Genome;
         return new CreatureDetails(
-            c.Id, c.IsDead, c.DeathTick, c.Generation, c.ParentId, c.Age, c.Lifespan,
+            c.Id, c.IsDead, c.DeathTick, c.Generation, c.ParentId, c.Species.Id, c.Species.Name, c.Age, c.Lifespan,
             c.Energy, c.MaxEnergy, c.MaxSpeed, c.Children, c.Kills,
             c.PlantEnergyEaten, c.MeatEnergyEaten, c.DietClass.ToString(),
             new GenomeInfo(g.Size, g.Speed, g.Vision, g.FieldOfView, g.Diet, g.Hue,

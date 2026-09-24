@@ -15,10 +15,12 @@ public sealed class Creature
     public const float BodyEnergyPerSize2 = 20f;
     public const float BaseSpeed = 2.4f;
 
-    internal Creature(int id, Genome genome, int generation, int parentId, int lifespan, int birthTick)
+    internal Creature(int id, Genome genome, Species species, int generation, int parentId, int lifespan, int birthTick)
     {
         Id = id;
         Genome = genome;
+        Species = species;
+        Traits = SpeciesTraits.Of(genome);
         Generation = generation;
         ParentId = parentId;
         Lifespan = lifespan;
@@ -33,6 +35,7 @@ public sealed class Creature
 
     public int Id { get; }
     public Genome Genome { get; }
+    public Species Species { get; internal set; }
     public Brain Brain { get; }
     public int Generation { get; }
     public int ParentId { get; }
@@ -61,6 +64,9 @@ public sealed class Creature
     public bool Biting { get; internal set; }
     public bool IsDead { get; internal set; }
     public int DeathTick { get; internal set; }
+
+    /// <summary>Гены, приведённые к [0, 1], — по ним существа сравниваются при переписи видов.</summary>
+    internal float[] Traits { get; }
 
     internal float Pain;
     internal float ClockPhase;

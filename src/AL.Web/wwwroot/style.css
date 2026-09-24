@@ -150,6 +150,45 @@ button.icon { min-width: 34px; }
 
 .dead { color: var(--carn); }
 
+.tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--line); }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 10px; }
+.tabs button.active { border-bottom-color: var(--accent); color: #ecfeff; background: none; }
+
+.species-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.species-row {
+  display: grid;
+  grid-template-columns: 12px auto 1fr auto;
+  align-items: baseline;
+  column-gap: 6px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.species-row:hover { background: #16222f; }
+.species-row.active { background: #134e4a; }
+.species-row .swatch { width: 10px; height: 10px; border-radius: 50%; align-self: center; }
+.species-row .count { text-align: right; font-variant-numeric: tabular-nums; }
+.species-row .meta { grid-column: 2 / -1; }
+
+.tree { width: 100%; height: 120px; display: block; background: var(--world); border-radius: 6px; cursor: pointer; }
+
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.section-head button { font-size: 12px; padding: 2px 8px; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: rgba(10, 15, 21, 0.94);
+}
+.overlay[hidden] { display: none; }
+.overlay-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.overlay-head h2 { margin: 0; color: var(--text); }
+.overlay-head .muted { flex: 1; }
+.overlay canvas { flex: 1; min-height: 0; width: 100%; display: block; background: var(--world); border-radius: 6px; cursor: pointer; }
+
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: 60vh auto; height: auto; }
   .panel { border-left: none; border-top: 1px solid var(--line); }

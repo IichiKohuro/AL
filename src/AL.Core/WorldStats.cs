@@ -22,6 +22,7 @@ public sealed record WorldStats(
     int Herbivores,
     int Omnivores,
     int Carnivores,
+    int LivingSpecies,
     double AverageGeneration,
     int MaxGeneration,
     double AverageSize,

@@ -8,19 +8,19 @@ namespace AL.Web;
 /// <code>
 /// u8 версия, i32 тик, f32 ширина, f32 высота
 /// u8 оазисов  × (f32 x, f32 y, f32 радиус, f32 плодородие)
-/// i32 существ × (f32 x, f32 y, u8 угол, u8 радиус×10, u8 цвет, u8 рацион, u8 энергия, u8 флаги)
+/// i32 существ × (f32 x, f32 y, u8 угол, u8 радиус×10, u8 цвет, u8 рацион, u8 энергия, u8 флаги, i32 вид)
 /// i32 еды     × (u16 x, u16 y, u8 вид)
 /// </code>
 /// </summary>
 public static class FrameEncoder
 {
-    public const byte Version = 1;
+    public const byte Version = 2;
     public const byte FlagBiting = 1;
     public const byte FlagSelected = 2;
 
     private const int HeaderBytes = 1 + 4 + 4 + 4;
     private const int OasisBytes = 16;
-    private const int CreatureBytes = 14;
+    private const int CreatureBytes = 18;
     private const int FoodBytes = 5;
 
     public static byte[] Encode(World world, Creature? selected)
@@ -68,6 +68,7 @@ public static class FrameEncoder
             writer.WriteByte(ToByte(c.Genome.Diet));
             writer.WriteByte(ToByte(c.Energy / c.MaxEnergy));
             writer.WriteByte(flags);
+            writer.WriteInt32(c.Species.Id);
         }
 
         writer.WriteInt32(food.Count);

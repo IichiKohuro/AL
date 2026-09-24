@@ -44,6 +44,12 @@ public sealed record SimulationSettings
     /// <summary>Минимальная эффективность пищеварения, при которой существо вообще ест этот вид пищи.</summary>
     public float MinDigestion { get; init; } = 0.25f;
 
+    // Виды: раз в SpeciesInterval тиков перепись; группа от MinSpeciesSplit особей,
+    // ушедшая от среднего облика вида дальше SpeciesThreshold, становится новым видом.
+    public int SpeciesInterval { get; init; } = 200;
+    public float SpeciesThreshold { get; init; } = 0.06f;
+    public int MinSpeciesSplit { get; init; } = 3;
+
     /// <summary>Как часто (в тиках) записывать точку в историю популяции.</summary>
     public int HistoryInterval { get; init; } = 25;
     public int HistoryCapacity { get; init; } = 4000;

@@ -17,6 +17,8 @@ var api = app.MapGroup("/api");
 
 api.MapGet("/stats", (SimulationService sim) => sim.GetStatsAsync());
 
+api.MapGet("/species", (SimulationService sim) => sim.GetSpeciesAsync());
+
 api.MapPost("/control", (ControlRequest request, SimulationService sim) =>
 {
     if (request.Speed is { } speed && !SimulationService.Speeds.Contains(speed))

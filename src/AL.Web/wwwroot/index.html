@@ -12,6 +12,14 @@
   <section class="stage" id="stage">
     <canvas id="world" aria-label="Мир симуляции"></canvas>
     <div class="hint">колесо — масштаб · перетаскивание — сдвиг · клик — выбрать существо · пробел — пауза</div>
+    <div id="tree-overlay" class="overlay" hidden>
+      <div class="overlay-head">
+        <h2>Дерево видов</h2>
+        <span class="muted small">клик по полосе — подсветить вид в мире · Esc — закрыть</span>
+        <button id="tree-close" class="icon" title="Закрыть (Esc)">✕</button>
+      </div>
+      <canvas id="tree-big"></canvas>
+    </div>
   </section>
 
   <aside class="panel">
@@ -29,6 +37,10 @@
         <button data-speed="0" title="Клавиша 4">макс</button>
       </div>
       <button id="reset" title="Новый мир со случайным сидом">новый мир</button>
+      <div class="speeds" role="group" aria-label="Раскраска">
+        <button data-color="species" title="Каждый вид — свой цвет">цвет: вид</button>
+        <button data-color="lineage" title="Цвет наследуется и понемногу мутирует">родство</button>
+      </div>
     </div>
 
     <section id="inspector" class="inspector" hidden>
@@ -43,6 +55,12 @@
       <canvas id="brain" class="brain"></canvas>
     </section>
 
+    <nav class="tabs" role="tablist">
+      <button data-tab="world" role="tab">Мир</button>
+      <button data-tab="species" role="tab">Виды <span id="species-count" class="muted"></span></button>
+    </nav>
+
+    <section id="tab-world">
     <div class="tiles">
       <div class="tile"><b id="population">–</b><span>популяция</span></div>
       <div class="tile herb"><b id="herbivores">–</b><span>травоядные</span></div>
@@ -59,7 +77,20 @@
       <span class="carn">хищники</span>
       <span class="plant">растения</span>
     </div>
-    <p class="muted small">Цвет тела — родство (потомки похожи на родителей), обводка — рацион: зелёная — травоядное, жёлтая — всеядное, красная — хищник. Красная дуга — укус.</p>
+    <p class="muted small">Цвет тела — вид или родство (переключается вверху), обводка — рацион: зелёная — травоядное, жёлтая — всеядное, красная — хищник. Красная дуга — укус.</p>
+    </section>
+
+    <section id="tab-species" hidden>
+      <p class="muted small">Вид отделяется, когда группа из нескольких особей заметно уходит от среднего облика своего вида: по рациону, размеру, скорости, зрению, цвету. Клик по виду подсвечивает его в мире.</p>
+      <div class="section-head">
+        <h2>Дерево видов</h2>
+        <button id="tree-expand" title="Показать дерево крупно на месте мира">развернуть</button>
+      </div>
+      <canvas id="tree" class="tree"></canvas>
+      <p class="muted small">Полоса — вид во времени, толщина — численность, вертикальная черта — отделение от предка, † — вид вымер.</p>
+      <h2>Живые виды</h2>
+      <ol id="species-list" class="species-list"></ol>
+    </section>
   </aside>
 </main>
 <script src="app.js"></script>

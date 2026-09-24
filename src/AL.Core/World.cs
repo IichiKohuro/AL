@@ -28,7 +28,9 @@ public sealed class World
     private readonly Queue<HistorySample> _history = new();
     private readonly SpatialGrid _creatureGrid;
     private readonly SpatialGrid _foodGrid;
+    private readonly SpeciesTracker _species = new();
     private readonly List<int> _scratch = [];
+    private Species? _spawnSpecies;
     private float[] _xs = [];
     private float[] _ys = [];
     private int _nextId = 1;
@@ -54,6 +56,9 @@ public sealed class World
     public IReadOnlyList<Food> Food => _food;
     public IReadOnlyList<Oasis> Oases => _oases;
     public IReadOnlyCollection<HistorySample> History => _history;
+
+    /// <summary>Все виды за историю мира, включая вымершие, в порядке появления.</summary>
+    public IReadOnlyList<Species> Species => _species.All;
     public WorldCounters Counters { get; } = new();
 
     private static List<int> Buffer => t_buffer ??= new List<int>(256);
@@ -76,6 +81,8 @@ public sealed class World
         GrowPlants();
         KeepMinimumPopulation();
 
+        if (Tick % Settings.SpeciesInterval == 0)
+            _species.Census(_creatures, Tick, Settings.SpeciesThreshold, Settings.MinSpeciesSplit);
         if (Tick % Settings.HistoryInterval == 0)
             RecordHistory();
     }
@@ -97,6 +104,9 @@ public sealed class World
     }
 
     public Creature? FindById(int id) => _creatures.Find(c => c.Id == id);
+
+    /// <summary>Вид по номеру. Номера выдаются подряд с 1, поэтому поиск — просто индекс.</summary>
+    public Species? FindSpecies(int id) => id >= 1 && id <= _species.All.Count ? _species.All[id - 1] : null;
 
     public WorldStats ComputeStats()
     {
@@ -129,10 +139,17 @@ public sealed class World
                 meat++;
         }
 
+        int livingSpecies = 0;
+        foreach (var s in _species.All)
+        {
+            if (!s.IsExtinct)
+                livingSpecies++;
+        }
+
         int n = Math.Max(1, _creatures.Count);
         return new WorldStats(
             Tick, _creatures.Count, _plantCount, meat,
-            herbivores, omnivores, carnivores,
+            herbivores, omnivores, carnivores, livingSpecies,
             generation / n, maxGeneration,
             size / n, speed / n, vision / n, fov / n, diet / n, mutation / n,
             Counters.Births, Counters.Deaths, Counters.Kills, Counters.Immigrants);
@@ -414,7 +431,8 @@ public sealed class World
         parent.Children++;
         parent.ReproductionCooldown = s.ReproductionCooldown;
 
-        var child = new Creature(_nextId++, genome, parent.Generation + 1, parent.Id, RandomLifespan(), Tick);
+        var child = new Creature(_nextId++, genome, parent.Species, parent.Generation + 1, parent.Id, RandomLifespan(), Tick);
+        parent.Species.Add();
         float behind = parent.Radius + child.Radius;
         child.X = Torus.Wrap(parent.X - MathF.Cos(parent.Angle) * behind, s.Width);
         child.Y = Torus.Wrap(parent.Y - MathF.Sin(parent.Angle) * behind, s.Height);
@@ -433,6 +451,7 @@ public sealed class World
 
         c.IsDead = true;
         c.DeathTick = Tick;
+        c.Species.Remove(Tick);
         Counters.Deaths++;
 
         // Тело становится мясом: энергия тела плюс половина оставшегося запаса.
@@ -557,10 +576,17 @@ public sealed class World
         }
     }
 
-    /// <summary>Добавляет существо с заданным геномом (поколение 0) в случайное место мира.</summary>
+    /// <summary>
+    /// Добавляет существо с заданным геномом (поколение 0) в случайное место мира.
+    /// Все, кто появился так за один тик, образуют новый вид без предков.
+    /// </summary>
     public Creature Spawn(Genome genome)
     {
-        var c = new Creature(_nextId++, genome, 0, 0, RandomLifespan(), Tick)
+        if (_spawnSpecies is null || _spawnSpecies.FoundedTick != Tick || _spawnSpecies.IsExtinct)
+            _spawnSpecies = _species.Found(0, Tick);
+        _spawnSpecies.Add();
+
+        var c = new Creature(_nextId++, genome, _spawnSpecies, 0, 0, RandomLifespan(), Tick)
         {
             X = _rng.NextSingle() * Settings.Width,
             Y = _rng.NextSingle() * Settings.Height,

@@ -42,10 +42,35 @@ const ctx = worldCanvas.getContext('2d');
 // ---------- состояние ----------
 
 const view = { cx: null, cy: null, zoom: 1, follow: false };
-let frame = null;     // последний кадр с сервера
-let dirty = true;     // нужно ли перерисовать мир
-let sim = null;       // состояние симуляции (пауза, скорость, сид)
-let selected = null;  // подробности о выбранном существе
+let frame = null;       // последний кадр с сервера
+let dirty = true;       // нужно ли перерисовать мир
+let sim = null;         // состояние симуляции (пауза, скорость, сид)
+let selected = null;    // подробности о выбранном существе
+let species = null;     // список и дерево видов
+let highlight = null;   // номер подсвеченного вида
+let colorMode = loadSetting('al.color', 'species');
+let activeTab = loadSetting('al.tab', 'world');
+
+function loadSetting(key, fallback) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveSetting(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Хранилище недоступно (приватный режим) — просто не запоминаем.
+  }
+}
+
+// Цвета видов разнесены по кругу «золотым углом», чтобы соседние номера не сливались.
+const speciesHue = id => (id * 137.508) % 360;
+const speciesColor = (id, alpha = 1) => `hsl(${speciesHue(id)} 65% 55% / ${alpha})`;
+const dietGroup = diet => diet < 1 / 3 ? 'травоядные' : diet > 2 / 3 ? 'хищники' : 'всеядные';
 
 // ---------- поток кадров ----------
 
@@ -85,7 +110,7 @@ function decodeFrame(buffer) {
 
   const creatureCount = v.getInt32(p, true); p += 4;
   const creatures = new Array(creatureCount);
-  for (let i = 0; i < creatureCount; i++, p += 14) {
+  for (let i = 0; i < creatureCount; i++, p += 18) {
     creatures[i] = {
       x: v.getFloat32(p, true),
       y: v.getFloat32(p + 4, true),
@@ -95,6 +120,7 @@ function decodeFrame(buffer) {
       diet: v.getUint8(p + 11) / 255,
       energy: v.getUint8(p + 12) / 255,
       flags: v.getUint8(p + 13),
+      species: v.getInt32(p + 14, true),
     };
   }
 
@@ -213,10 +239,12 @@ function drawCreatures(f, s) {
     const cos = Math.cos(c.angle);
     const sin = Math.sin(c.angle);
     const r = Math.max(c.r, minRadius);
+    const hue = colorMode === 'species' ? speciesHue(c.species) : c.hue;
+    ctx.globalAlpha = highlight === null || c.species === highlight ? 1 : 0.15;
 
     ctx.beginPath();
     ctx.arc(c.x, c.y, r, 0, TAU);
-    ctx.fillStyle = `hsl(${c.hue} 70% ${28 + c.energy * 37}%)`;
+    ctx.fillStyle = `hsl(${hue} 70% ${28 + c.energy * 37}%)`;
     ctx.fill();
     ctx.lineWidth = ring;
     ctx.strokeStyle = dietColor(c.diet);
@@ -236,7 +264,17 @@ function drawCreatures(f, s) {
       ctx.lineWidth = ring * 1.5;
       ctx.stroke();
     }
+
+    // Особи подсвеченного вида — в ореоле его цвета.
+    if (highlight !== null && c.species === highlight) {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, r + 4 / s, 0, TAU);
+      ctx.strokeStyle = speciesColor(c.species);
+      ctx.lineWidth = ring * 1.3;
+      ctx.stroke();
+    }
   }
+  ctx.globalAlpha = 1;
 }
 
 function drawSelection(me, s) {
@@ -340,7 +378,12 @@ document.addEventListener('keydown', e => {
   } else if (e.code === 'KeyF') {
     setFollow(!view.follow);
   } else if (e.code === 'Escape') {
+    if (!$('tree-overlay').hidden) {
+      setTreeOverlay(false);
+      return;
+    }
     clearSelection();
+    setHighlight(null);
   }
 });
 
@@ -367,13 +410,39 @@ document.querySelectorAll('[data-speed]').forEach(button =>
   button.addEventListener('click', () => control({ speed: Number(button.dataset.speed), paused: false })));
 $('reset').addEventListener('click', async () => {
   clearSelection();
+  setHighlight(null);
   sim = await api('POST', '/api/reset', {});
   view.cx = null;
   view.zoom = 1;
   renderControls();
   refreshStats();
+  refreshSpecies();
 });
 $('follow').addEventListener('click', () => setFollow(!view.follow));
+document.querySelectorAll('[data-color]').forEach(button =>
+  button.addEventListener('click', () => setColorMode(button.dataset.color)));
+document.querySelectorAll('[data-tab]').forEach(button =>
+  button.addEventListener('click', () => setTab(button.dataset.tab)));
+
+function setColorMode(mode) {
+  colorMode = mode;
+  saveSetting('al.color', mode);
+  document.querySelectorAll('[data-color]').forEach(button =>
+    button.classList.toggle('active', button.dataset.color === mode));
+  dirty = true;
+}
+
+function setTab(tab) {
+  activeTab = tab;
+  saveSetting('al.tab', tab);
+  document.querySelectorAll('[data-tab]').forEach(button =>
+    button.classList.toggle('active', button.dataset.tab === tab));
+  $('tab-world').hidden = tab !== 'world';
+  $('tab-species').hidden = tab !== 'species';
+  if (tab !== 'species') setTreeOverlay(false);
+  if (tab === 'species') refreshSpecies();
+  else refreshStats();
+}
 $('deselect').addEventListener('click', () => clearSelection());
 
 // ---------- статистика ----------
@@ -421,6 +490,7 @@ function renderStats(st) {
   $('herbivores').textContent = fmt(st.herbivores);
   $('omnivores').textContent = fmt(st.omnivores);
   $('carnivores').textContent = fmt(st.carnivores);
+  $('species-count').textContent = fmt(st.livingSpecies);
   renderList($('stats'), [
     ['Растения · мясо', `${fmt(st.plants)} · ${fmt(st.meat)}`],
     ['Поколение', `ср. ${fmt(st.averageGeneration, 1)} · макс. ${fmt(st.maxGeneration)}`],
@@ -528,6 +598,7 @@ function renderInspector() {
   $('energy-bar').style.width = `${clamp(d.energy / d.maxEnergy, 0, 1) * 100}%`;
 
   renderList($('creature'), [
+    ['Вид', `${d.speciesName} #${d.speciesId}`],
     ['Рацион', `${DIET_NAMES[d.dietClass]} (${fmt(g.diet, 2)})`],
     ['Поколение', d.generation],
     ['Возраст', `${fmt(d.age)} из ${fmt(d.lifespan)}`],
@@ -607,10 +678,192 @@ function neuron(c, x, y, value) {
   c.stroke();
 }
 
+// ---------- виды ----------
+
+async function refreshSpecies() {
+  if (activeTab !== 'species') return;
+  try {
+    species = await api('GET', '/api/species');
+    renderSpeciesList();
+    drawTree();
+  } catch {
+    // Сервер недоступен — об этом сообщит WebSocket.
+  }
+}
+
+function setHighlight(id) {
+  highlight = id;
+  dirty = true;
+  if (species) {
+    renderSpeciesList();
+    drawTree();
+  }
+}
+
+function renderSpeciesList() {
+  const shown = species.living.filter(s => s.population >= 2).slice(0, 10);
+  $('species-list').replaceChildren(...shown.map(s => {
+    const item = document.createElement('li');
+    item.className = 'species-row';
+    item.classList.toggle('active', highlight === s.id);
+    item.title = 'Подсветить вид в мире';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = speciesColor(s.id);
+    const name = document.createElement('b');
+    name.textContent = s.name;
+    const number = document.createElement('span');
+    number.className = 'muted';
+    number.textContent = ` #${s.id}`;
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = fmt(s.population);
+    const meta = document.createElement('div');
+    meta.className = 'meta muted small';
+    meta.textContent = [
+      dietGroup(s.averageDiet),
+      `с тика ${fmt(s.foundedTick)}`,
+      s.parentName ? `от ${s.parentName}` : 'без предков',
+    ].join(' · ');
+
+    item.append(swatch, name, number, count, meta);
+    item.addEventListener('click', () => setHighlight(highlight === s.id ? null : s.id));
+    return item;
+  }));
+}
+
+// Дерево рисуется на двух холстах: компактно в панели и крупно поверх мира.
+const TREES = {
+  tree: { row: 14, labels: 96, font: 10, fill: false },
+  'tree-big': { row: 24, labels: 150, font: 12, fill: true },
+};
+const treeLayouts = new Map();
+
+// Порядок строк: обход в глубину от корней, дети — по времени появления.
+function treeOrder(branches) {
+  const byId = new Map(branches.map(b => [b.species.id, b]));
+  const children = new Map();
+  const roots = [];
+  for (const b of branches) {
+    if (byId.has(b.species.parentId)) {
+      if (!children.has(b.species.parentId)) children.set(b.species.parentId, []);
+      children.get(b.species.parentId).push(b);
+    } else {
+      roots.push(b);
+    }
+  }
+
+  const rows = [];
+  const byFounding = (a, z) => a.species.foundedTick - z.species.foundedTick;
+  const visit = b => {
+    rows.push(b);
+    (children.get(b.species.id) ?? []).sort(byFounding).forEach(visit);
+  };
+  roots.sort(byFounding).forEach(visit);
+  return rows;
+}
+
+function drawTree() {
+  const rows = treeOrder(species.tree);
+  drawTreeOn('tree', rows);
+  if (!$('tree-overlay').hidden) drawTreeOn('tree-big', rows);
+}
+
+// Каждая полоса — вид во времени, толщина — численность, вертикальная черта — момент отделения от предка.
+function drawTreeOn(id, rows) {
+  const canvas = $(id);
+  const layout = TREES[id];
+  const pad = 6;
+  const axis = 18;
+  if (!layout.fill) canvas.style.height = `${Math.max(60, rows.length * layout.row + pad + axis)}px`;
+  const dpr = fitCanvas(canvas);
+  const c = canvas.getContext('2d');
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, width, height);
+
+  const row = layout.fill ? clamp((height - pad - axis) / Math.max(1, rows.length), 8, layout.row) : layout.row;
+  treeLayouts.set(id, { rows, top: pad, row });
+  if (rows.length === 0) return;
+
+  const t0 = Math.min(...rows.map(b => b.species.foundedTick));
+  const t1 = Math.max(species.tick, t0 + 1);
+  const x = t => layout.labels + (width - layout.labels - pad) * (t - t0) / (t1 - t0);
+  const rowY = new Map(rows.map((b, i) => [b.species.id, pad + i * row + row / 2]));
+  const maxPopulation = Math.max(1, ...rows.map(b => b.species.peakPopulation));
+  const thickness = population => Math.max(0.75, (row / 2 - 2) * Math.sqrt(population / maxPopulation));
+
+  c.lineWidth = 1;
+  for (const b of rows) {
+    const parentY = rowY.get(b.species.parentId);
+    if (parentY === undefined) continue;
+    const px = x(b.species.foundedTick);
+    c.strokeStyle = speciesColor(b.species.id, 0.6);
+    c.beginPath();
+    c.moveTo(px, parentY);
+    c.lineTo(px, rowY.get(b.species.id));
+    c.stroke();
+  }
+
+  c.font = `${layout.font}px system-ui, sans-serif`;
+  c.textBaseline = 'middle';
+  c.textAlign = 'right';
+  for (const b of rows) {
+    const s = b.species;
+    const y = rowY.get(s.id);
+    const extinct = s.extinctTick !== null;
+    c.globalAlpha = highlight === null || highlight === s.id ? 1 : 0.3;
+
+    c.fillStyle = speciesColor(s.id, extinct ? 0.55 : 0.9);
+    c.beginPath();
+    c.moveTo(x(s.foundedTick), y);
+    for (let i = 0; i < b.ticks.length; i++) c.lineTo(x(b.ticks[i]), y - thickness(b.populations[i]));
+    for (let i = b.ticks.length - 1; i >= 0; i--) c.lineTo(x(b.ticks[i]), y + thickness(b.populations[i]));
+    c.closePath();
+    c.fill();
+
+    c.fillStyle = extinct ? '#7f8e9d' : speciesColor(s.id);
+    c.fillText(`${extinct ? '† ' : ''}${s.name}`, layout.labels - 6, y);
+  }
+  c.globalAlpha = 1;
+
+  c.fillStyle = '#7f8e9d';
+  c.textAlign = 'left';
+  c.fillText(`тик ${fmt(t0)}`, layout.labels, height - axis / 2);
+  c.textAlign = 'right';
+  c.fillText(fmt(t1), width - pad, height - axis / 2);
+}
+
+for (const id of Object.keys(TREES)) {
+  $(id).addEventListener('click', e => {
+    const layout = treeLayouts.get(id);
+    if (!layout) return;
+    const rect = $(id).getBoundingClientRect();
+    const row = layout.rows[Math.floor((e.clientY - rect.top - layout.top) / layout.row)];
+    if (row) setHighlight(highlight === row.species.id ? null : row.species.id);
+  });
+}
+
+function setTreeOverlay(open) {
+  $('tree-overlay').hidden = !open;
+  if (open && species) drawTree();
+}
+
+$('tree-expand').addEventListener('click', () => setTreeOverlay(true));
+$('tree-close').addEventListener('click', () => setTreeOverlay(false));
+new ResizeObserver(() => {
+  if (species && !$('tree-overlay').hidden) drawTree();
+}).observe($('tree-big'));
+
 // ---------- старт ----------
 
+setColorMode(colorMode);
+setTab(activeTab);
 connect();
 refreshStats();
 setInterval(refreshStats, 1000);
+setInterval(refreshSpecies, 2000);
 setInterval(pollSelected, 250);
 requestAnimationFrame(loop);

@@ -18,6 +18,8 @@ public sealed class SimulationService(ILogger<SimulationService> logger, IConfig
 
     private const float SelectionRadius = 30f;
     private const int HistoryPoints = 300;
+    private const int TreeBranches = 30;
+    private const int BranchPoints = 150;
 
     private readonly ConcurrentQueue<Action> _commands = new();
     // Сид можно задать при запуске: dotnet run -- --seed 42
@@ -65,6 +67,8 @@ public sealed class SimulationService(ILogger<SimulationService> logger, IConfig
 
     public Task<StatsResponse> GetStatsAsync() =>
         InvokeAsync(world => new StatsResponse(State, world.ComputeStats(), Downsample(world.History, HistoryPoints)));
+
+    public Task<SpeciesResponse> GetSpeciesAsync() => InvokeAsync(BuildSpecies);
 
     /// <summary>Ждёт кадр новее <paramref name="lastVersion"/>. Медленный клиент просто пропускает промежуточные кадры.</summary>
     public async Task<Frame> NextFrameAsync(long lastVersion, CancellationToken cancellationToken)
@@ -182,13 +186,54 @@ public sealed class SimulationService(ILogger<SimulationService> logger, IConfig
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    private static HistorySample[] Downsample(IReadOnlyCollection<HistorySample> history, int maxPoints)
+    /// <summary>
+    /// Живые виды по убыванию численности и дерево заметных видов: живых от 5 особей или
+    /// когда-то достигавших 15, — вместе со всеми их предками, чтобы ветки не висели в воздухе.
+    /// </summary>
+    private static SpeciesResponse BuildSpecies(World world)
+    {
+        var living = world.Species
+            .Where(s => !s.IsExtinct)
+            .OrderByDescending(s => s.Population)
+            .Select(s => SpeciesInfo.From(s, world))
+            .ToArray();
+
+        var included = new HashSet<int>();
+        var notable = world.Species
+            .Where(s => (!s.IsExtinct && s.Population >= 5) || s.PeakPopulation >= 15)
+            .OrderBy(s => s.IsExtinct)
+            .ThenByDescending(s => s.PeakPopulation)
+            .Take(TreeBranches);
+        foreach (var s in notable)
+        {
+            for (var cur = s; cur is not null && included.Add(cur.Id); cur = world.FindSpecies(cur.ParentId))
+            {
+            }
+        }
+
+        var tree = world.Species
+            .Where(s => included.Contains(s.Id))
+            .Select(s =>
+            {
+                var history = Downsample(s.History, BranchPoints);
+                return new SpeciesBranch(
+                    SpeciesInfo.From(s, world),
+                    history.Select(p => p.Tick).ToArray(),
+                    history.Select(p => p.Population).ToArray());
+            })
+            .ToArray();
+
+        return new SpeciesResponse(world.Tick, living, tree);
+    }
+
+    private static T[] Downsample<T>(IEnumerable<T> history, int maxPoints)
     {
         var all = history.ToArray();
         if (all.Length <= maxPoints)
             return all;
 
-        var result = new HistorySample[maxPoints];
+        // Последняя точка сохраняется всегда — это «сейчас» или момент вымирания.
+        var result = new T[maxPoints];
         for (int i = 0; i < maxPoints; i++)
             result[i] = all[(int)((long)i * (all.Length - 1) / (maxPoints - 1))];
         return result;
